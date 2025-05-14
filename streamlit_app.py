@@ -1,19 +1,16 @@
 import os
 import streamlit as st
-import PyPDF2
 import requests
+import PyPDF2
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 import google.generativeai as genai
 
-# טען את מפתח ה־API מקובץ הסביבה
+# טען משתנים מהסביבה
 load_dotenv()
 genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# הגדרת המודל של Gemini
-model = genai.GenerativeModel('gemini-pro')
-
-# חילוץ טקסט מ־PDF
+# פונקציה לחילוץ טקסט מקובץ PDF
 def extract_text_from_pdf(file):
     reader = PyPDF2.PdfReader(file)
     text = ""
@@ -21,7 +18,7 @@ def extract_text_from_pdf(file):
         text += page.extract_text() or ""
     return text
 
-# חילוץ טקסט מקישור
+# פונקציה לחילוץ טקסט מדף אינטרנט
 def extract_text_from_url(url):
     try:
         response = requests.get(url)
@@ -31,47 +28,42 @@ def extract_text_from_url(url):
     except Exception as e:
         return f"שגיאה: {e}"
 
-# סיכום טקסט בעזרת Gemini
+# פונקציית סיכום עם Gemini
 def summarize_text_with_gemini(text, length="קצר"):
-    prompt = f"תמצת את הטקסט הבא בצורה {length}:\n\n{text}"
+    model = genai.GenerativeModel('gemini-pro')
+    prompt = f"סכם את הטקסט הבא בצורה {length}:\n\n{text}"
     try:
         response = model.generate_content(prompt)
-        return response.text
+        return response.text.strip()
     except Exception as e:
         return f"שגיאה בסיכום: {e}"
 
-# ממשק המשתמש
+# ממשק Streamlit
 def main():
-    st.title("📄 מסכם טקסטים מבוסס Gemini")
-    st.markdown("בחר מקור קלט (PDF, TXT, או URL):")
+    st.title("🧠 אפליקציה לחילוץ וסיכום מסמכים")
 
-    source = st.radio("מקור הטקסט:", ["קובץ", "קישור"])
-
+    source_type = st.radio("בחר מקור תוכן:", ["קובץ PDF", "כתובת URL"])
+    
     text = ""
-    if source == "קובץ":
-        uploaded_file = st.file_uploader("העלה קובץ PDF או TXT", type=["pdf", "txt"])
-        if uploaded_file:
-            if uploaded_file.name.endswith(".pdf"):
-                text = extract_text_from_pdf(uploaded_file)
-            elif uploaded_file.name.endswith(".txt"):
-                text = uploaded_file.read().decode("utf-8")
-            else:
-                st.error("פורמט קובץ לא נתמך.")
-
-    elif source == "קישור":
-        url = st.text_input("הכנס כתובת אתר:")
+    if source_type == "קובץ PDF":
+        uploaded_file = st.file_uploader("העלה קובץ PDF", type=["pdf"])
+        if uploaded_file is not None:
+            text = extract_text_from_pdf(uploaded_file)
+    else:
+        url = st.text_input("הכנס כתובת אינטרנט")
         if url:
             text = extract_text_from_url(url)
-
+    
     if text:
-        st.subheader("📘 טקסט שחולץ (תצוגה מקדימה):")
-        st.text_area("תוכן", value=text[:1000], height=200)
+        st.subheader("📄 הטקסט שחולץ:")
+        st.text(text[:1000] + "..." if len(text) > 1000 else text)
 
-        summary_length = st.selectbox("בחר אורך סיכום:", ["קצר", "בינוני", "מפורט"])
-        if st.button("✏️ צור סיכום"):
-            summary = summarize_text_with_gemini(text, length=summary_length)
-            st.subheader("📌 סיכום:")
-            st.write(summary)
+        summary_style = st.selectbox("בחר סגנון סיכום:", ["קצר", "בינוני", "מפורט"])
+        if st.button("📋 צור סיכום"):
+            with st.spinner("יוצר סיכום..."):
+                summary = summarize_text_with_gemini(text, length=summary_style)
+                st.subheader("✍️ סיכום:")
+                st.write(summary)
 
 if __name__ == "__main__":
     main()
