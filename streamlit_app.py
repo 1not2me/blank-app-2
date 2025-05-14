@@ -6,19 +6,22 @@ from bs4 import BeautifulSoup
 import streamlit as st
 from dotenv import load_dotenv
 
-# טען משתני סביבה מקובץ .env
+# טעינת מפתח API מקובץ .env
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# פונקציה לחילוץ טקסט מקובץ PDF
+# חילוץ טקסט מקובץ PDF
 def extract_text_from_pdf(file):
-    reader = PyPDF2.PdfReader(file)
-    text = ""
-    for page in reader.pages:
-        text += page.extract_text() or ""
-    return text
+    try:
+        reader = PyPDF2.PdfReader(file)
+        text = ""
+        for page in reader.pages:
+            text += page.extract_text() or ""
+        return text
+    except Exception as e:
+        return f"שגיאה בקריאת PDF: {e}"
 
-# פונקציה לחילוץ טקסט מדף אינטרנט
+# חילוץ טקסט מ-URL
 def extract_text_from_url(url):
     try:
         response = requests.get(url)
@@ -26,13 +29,13 @@ def extract_text_from_url(url):
         paragraphs = soup.find_all('p')
         return "\n".join([p.get_text() for p in paragraphs])
     except Exception as e:
-        return f"שגיאה: {e}"
+        return f"שגיאה בטעינת דף האינטרנט: {e}"
 
-# פונקציה לסיכום טקסט בעזרת OpenAI עם ChatCompletion
+# סיכום טקסט עם OpenAI ChatCompletion
 def summarize_text(text, summary_length="קצר", max_tokens=150):
     prompt = f"תמצת את הטקסט הבא בצורה {summary_length}:\n\n{text}"
     try:
-        response = openai.ChatCompletion.create(
+        response = openai.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "אתה עוזר חכם שמסכם טקסטים בעברית"},
@@ -45,12 +48,12 @@ def summarize_text(text, summary_length="קצר", max_tokens=150):
     except Exception as e:
         return f"שגיאה בסיכום הטקסט: {e}"
 
-# ממשק Streamlit ראשי
+# ממשק Streamlit
 def main():
     st.title("📄 מערכת לסיכום מסמכים")
-    st.markdown("בחר מקור קלט: העלאת קובץ PDF/TXT או הזנת כתובת URL")
+    st.markdown("בחר מקור קלט: העלאת קובץ או הזנת כתובת אינטרנט")
 
-    source_option = st.radio("מקור הקלט:", ("קובץ", "URL"))
+    source_option = st.radio("בחר מקור:", ("קובץ", "URL"))
 
     text = ""
     if source_option == "קובץ":
@@ -61,25 +64,19 @@ def main():
             elif uploaded_file.name.endswith(".txt"):
                 text = uploaded_file.read().decode("utf-8")
             else:
-                st.error("⚠️ פורמט קובץ לא נתמך. נא לבחור PDF או TXT.")
-    elif source_option == "URL":
-        url = st.text_input("הזן כתובת אינטרנט (URL):")
+                st.error("פורמט לא נתמך. נא לבחור PDF או TXT.")
+    else:
+        url = st.text_input("הזן URL:")
         if url:
             text = extract_text_from_url(url)
 
     if text:
-        with st.expander("📘 הצג טקסט שחולץ"):
-            st.text_area("תוכן המסמך", text, height=300)
+        with st.expander("📘 טקסט שחולץ"):
+            st.text_area("תוכן:", text, height=300)
 
-        summary_length = st.selectbox("בחר אורך סיכום רצוי:", ["קצר", "בינוני", "מפורט"])
+        summary_length = st.selectbox("בחר אורך סיכום:", ["קצר", "בינוני", "מפורט"])
         if st.button("✏️ צור סיכום"):
-            if summary_length == "קצר":
-                tokens = 150
-            elif summary_length == "בינוני":
-                tokens = 300
-            else:
-                tokens = 500
-
+            tokens = {"קצר": 500, "בינוני": 1500, "מפורט": 5000}.get(summary_length, 150)
             summary = summarize_text(text, summary_length=summary_length, max_tokens=tokens)
             st.subheader("📌 סיכום:")
             st.write(summary)
