@@ -1,27 +1,27 @@
 import os
-import openai
+import streamlit as st
 import PyPDF2
 import requests
 from bs4 import BeautifulSoup
-import streamlit as st
 from dotenv import load_dotenv
+import google.generativeai as genai
 
-# טעינת מפתח API מקובץ .env
+# טען את מפתח ה־API מקובץ הסביבה
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-# חילוץ טקסט מקובץ PDF
+# הגדרת המודל של Gemini
+model = genai.GenerativeModel('gemini-pro')
+
+# חילוץ טקסט מ־PDF
 def extract_text_from_pdf(file):
-    try:
-        reader = PyPDF2.PdfReader(file)
-        text = ""
-        for page in reader.pages:
-            text += page.extract_text() or ""
-        return text
-    except Exception as e:
-        return f"שגיאה בקריאת PDF: {e}"
+    reader = PyPDF2.PdfReader(file)
+    text = ""
+    for page in reader.pages:
+        text += page.extract_text() or ""
+    return text
 
-# חילוץ טקסט מ-URL
+# חילוץ טקסט מקישור
 def extract_text_from_url(url):
     try:
         response = requests.get(url)
@@ -29,34 +29,26 @@ def extract_text_from_url(url):
         paragraphs = soup.find_all('p')
         return "\n".join([p.get_text() for p in paragraphs])
     except Exception as e:
-        return f"שגיאה בטעינת דף האינטרנט: {e}"
+        return f"שגיאה: {e}"
 
-# סיכום טקסט עם OpenAI ChatCompletion
-def summarize_text(text, summary_length="קצר", max_tokens=150):
-    prompt = f"תמצת את הטקסט הבא בצורה {summary_length}:\n\n{text}"
+# סיכום טקסט בעזרת Gemini
+def summarize_text_with_gemini(text, length="קצר"):
+    prompt = f"תמצת את הטקסט הבא בצורה {length}:\n\n{text}"
     try:
-        response = openai.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": "system", "content": "אתה עוזר חכם שמסכם טקסטים בעברית"},
-                {"role": "user", "content": prompt}
-            ],
-            max_tokens=max_tokens,
-            temperature=0.7,
-        )
-        return response.choices[0].message.content.strip()
+        response = model.generate_content(prompt)
+        return response.text
     except Exception as e:
-        return f"שגיאה בסיכום הטקסט: {e}"
+        return f"שגיאה בסיכום: {e}"
 
-# ממשק Streamlit
+# ממשק המשתמש
 def main():
-    st.title("📄 מערכת לסיכום מסמכים")
-    st.markdown("בחר מקור קלט: העלאת קובץ או הזנת כתובת אינטרנט")
+    st.title("📄 מסכם טקסטים מבוסס Gemini")
+    st.markdown("בחר מקור קלט (PDF, TXT, או URL):")
 
-    source_option = st.radio("בחר מקור:", ("קובץ", "URL"))
+    source = st.radio("מקור הטקסט:", ["קובץ", "קישור"])
 
     text = ""
-    if source_option == "קובץ":
+    if source == "קובץ":
         uploaded_file = st.file_uploader("העלה קובץ PDF או TXT", type=["pdf", "txt"])
         if uploaded_file:
             if uploaded_file.name.endswith(".pdf"):
@@ -64,20 +56,20 @@ def main():
             elif uploaded_file.name.endswith(".txt"):
                 text = uploaded_file.read().decode("utf-8")
             else:
-                st.error("פורמט לא נתמך. נא לבחור PDF או TXT.")
-    else:
-        url = st.text_input("הזן URL:")
+                st.error("פורמט קובץ לא נתמך.")
+
+    elif source == "קישור":
+        url = st.text_input("הכנס כתובת אתר:")
         if url:
             text = extract_text_from_url(url)
 
     if text:
-        with st.expander("📘 טקסט שחולץ"):
-            st.text_area("תוכן:", text, height=300)
+        st.subheader("📘 טקסט שחולץ (תצוגה מקדימה):")
+        st.text_area("תוכן", value=text[:1000], height=200)
 
         summary_length = st.selectbox("בחר אורך סיכום:", ["קצר", "בינוני", "מפורט"])
         if st.button("✏️ צור סיכום"):
-            tokens = {"קצר": 500, "בינוני": 1500, "מפורט": 5000}.get(summary_length, 150)
-            summary = summarize_text(text, summary_length=summary_length, max_tokens=tokens)
+            summary = summarize_text_with_gemini(text, length=summary_length)
             st.subheader("📌 סיכום:")
             st.write(summary)
 
