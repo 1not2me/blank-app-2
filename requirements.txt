@@ -1,6 +1,5 @@
-streamlit
-PyPDF2
-requests
-beautifulsoup4
+openai
 python-dotenv
-google-generativeai
+PyPDF2
+beautifulsoup4
+requests
