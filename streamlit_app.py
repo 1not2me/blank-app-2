@@ -1,69 +1,123 @@
 import os
-import streamlit as st
-import requests
-import PyPDF2
-from bs4 import BeautifulSoup
+import re
 from dotenv import load_dotenv
-import google.generativeai as genai
+import PyPDF2
+import requests
+from bs4 import BeautifulSoup
+import openai
 
-# טען משתנים מהסביבה
+# טען את מפתח ה־API
 load_dotenv()
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# פונקציה לחילוץ טקסט מקובץ PDF
-def extract_text_from_pdf(file):
-    reader = PyPDF2.PdfReader(file)
+# ניקוי טקסט
+def clean_text(text):
+    text = re.sub(r'\s+', ' ', text)  # רווחים מרובים
+    text = re.sub(r'\n+', '\n', text)  # שורות ריקות
+    return text.strip()
+
+# חילוץ טקסט מ־PDF
+def extract_text_from_pdf(pdf_path):
     text = ""
-    for page in reader.pages:
-        text += page.extract_text() or ""
-    return text
+    try:
+        with open(pdf_path, 'rb') as file:
+            reader = PyPDF2.PdfReader(file)
+            for page in reader.pages:
+                text += page.extract_text() or ""
+    except FileNotFoundError:
+        return "שגיאה: קובץ PDF לא נמצא."
+    except Exception as e:
+        return f"שגיאה בעיבוד PDF: {e}"
+    return clean_text(text)
 
-# פונקציה לחילוץ טקסט מדף אינטרנט
+# חילוץ טקסט מ־URL
 def extract_text_from_url(url):
     try:
         response = requests.get(url)
+        response.raise_for_status()
         soup = BeautifulSoup(response.content, 'html.parser')
         paragraphs = soup.find_all('p')
-        return "\n".join([p.get_text() for p in paragraphs])
+        text = '\n'.join([p.get_text() for p in paragraphs])
+        return clean_text(text)
+    except requests.exceptions.RequestException as e:
+        return f"שגיאה בהבאת URL: {e}"
     except Exception as e:
-        return f"שגיאה: {e}"
+        return f"שגיאה בעיבוד דף אינטרנט: {e}"
 
-# פונקציית סיכום עם Gemini
-def summarize_text_with_gemini(text, length="קצר"):
+# סיכום טקסט עם OpenAI
+def summarize_text(text, summary_length="קצר", max_tokens=150):
+    prompt = f"תמצת את הטקסט הבא בצורה {summary_length}:\n\n{text}"
     try:
-        model = genai.GenerativeModel(model_name="models/gemini-pro")
-        prompt = f"סכם את הטקסט הבא בצורה {length}:\n\n{text}"
-        response = model.generate_content(prompt)
-        return response.candidates[0].content.parts[0].text.strip()
+        response = openai.Completion.create(
+            model="text-davinci-003",
+            prompt=prompt,
+            max_tokens=max_tokens,
+            temperature=0.7,
+        )
+        return response.choices[0].text.strip()
     except Exception as e:
-        return f"שגיאה בסיכום: {e}"
+        return f"שגיאה בשירות OpenAI: {e}"
 
-# ממשק Streamlit
+# מענה לשאלה על פי הטקסט
+def answer_question(text, question):
+    prompt = f"בהתבסס על הטקסט הבא:\n{text}\n\nענה על השאלה:\n{question}\nתשובה:"
+    try:
+        response = openai.Completion.create(
+            model="text-davinci-003",
+            prompt=prompt,
+            max_tokens=200,
+            temperature=0.5,
+        )
+        return response.choices[0].text.strip()
+    except Exception as e:
+        return f"שגיאה במענה על שאלה: {e}"
+
+# פונקציית ההפעלה הראשית
 def main():
-    st.title("🧠 אפליקציה לחילוץ וסיכום מסמכים עם Gemini")
+    source_type = input("הזן 'file' כדי להעלות קובץ או 'url' עבור כתובת אינטרנט: ").lower()
 
-    source_type = st.radio("בחר מקור תוכן:", ["קובץ PDF", "כתובת URL"])
     text = ""
-
-    if source_type == "קובץ PDF":
-        uploaded_file = st.file_uploader("העלה קובץ PDF", type=["pdf"])
-        if uploaded_file is not None:
-            text = extract_text_from_pdf(uploaded_file)
+    if source_type == 'file':
+        file_path = input("הזן את נתיב הקובץ (PDF או TXT): ")
+        if file_path.lower().endswith('.pdf'):
+            text = extract_text_from_pdf(file_path)
+        elif file_path.lower().endswith('.txt'):
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    text = f.read()
+                    text = clean_text(text)
+            except Exception as e:
+                text = f"שגיאה בקריאת קובץ TXT: {e}"
+        else:
+            print("פורמט קובץ לא נתמך.")
+            return
+    elif source_type == 'url':
+        url = input("הזן את כתובת האתר: ")
+        text = extract_text_from_url(url)
     else:
-        url = st.text_input("הכנס כתובת אינטרנט")
-        if url:
-            text = extract_text_from_url(url)
+        print("קלט לא חוקי.")
+        return
 
-    if text:
-        st.subheader("📄 הטקסט שחולץ:")
-        st.text(text[:1000] + "..." if len(text) > 1000 else text)
+    if text.startswith("שגיאה"):
+        print(text)
+        return
 
-        summary_style = st.selectbox("בחר סגנון סיכום:", ["קצר", "בינוני", "מפורט"])
-        if st.button("📋 צור סיכום"):
-            with st.spinner("יוצר סיכום..."):
-                summary = summarize_text_with_gemini(text, length=summary_style)
-                st.subheader("✍️ סיכום:")
-                st.write(summary)
+    print("\n📄 חלק מהטקסט שחולץ:\n")
+    print(text[:500] + "..." if len(text) > 500 else text)
+
+    summary_length = input("\nהזן את אורך הסיכום הרצוי (קצר/בינוני/מפורט): ").lower()
+    max_tokens = {"קצר": 150, "בינוני": 300, "מפורט": 500}.get(summary_length, 150)
+
+    summary = summarize_text(text, summary_length=summary_length, max_tokens=max_tokens)
+    print("\n📝 סיכום:\n")
+    print(summary)
+
+    ask = input("\nרוצה לשאול שאלה על המסמך? (y/n): ").lower()
+    if ask == "y":
+        question = input("הקלד את השאלה שלך: ")
+        answer = answer_question(text, question)
+        print("\n🤖 תשובה לשאלה:\n")
+        print(answer)
 
 if __name__ == "__main__":
     main()
