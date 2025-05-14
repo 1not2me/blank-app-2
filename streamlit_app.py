@@ -30,21 +30,21 @@ def extract_text_from_url(url):
 
 # פונקציית סיכום עם Gemini
 def summarize_text_with_gemini(text, length="קצר"):
-    model = genai.GenerativeModel('gemini-pro')
-    prompt = f"סכם את הטקסט הבא בצורה {length}:\n\n{text}"
     try:
+        model = genai.GenerativeModel(model_name="models/gemini-pro")
+        prompt = f"סכם את הטקסט הבא בצורה {length}:\n\n{text}"
         response = model.generate_content(prompt)
-        return response.text.strip()
+        return response.candidates[0].content.parts[0].text.strip()
     except Exception as e:
         return f"שגיאה בסיכום: {e}"
 
 # ממשק Streamlit
 def main():
-    st.title("🧠 אפליקציה לחילוץ וסיכום מסמכים")
+    st.title("🧠 אפליקציה לחילוץ וסיכום מסמכים עם Gemini")
 
     source_type = st.radio("בחר מקור תוכן:", ["קובץ PDF", "כתובת URL"])
-    
     text = ""
+
     if source_type == "קובץ PDF":
         uploaded_file = st.file_uploader("העלה קובץ PDF", type=["pdf"])
         if uploaded_file is not None:
@@ -53,7 +53,7 @@ def main():
         url = st.text_input("הכנס כתובת אינטרנט")
         if url:
             text = extract_text_from_url(url)
-    
+
     if text:
         st.subheader("📄 הטקסט שחולץ:")
         st.text(text[:1000] + "..." if len(text) > 1000 else text)
